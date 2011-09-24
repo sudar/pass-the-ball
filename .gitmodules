@@ -1,0 +1,3 @@
+[submodule "eZ430-tools"]
+	path = eZ430-tools
+	url = git@github.com:sudar/eZ430-tools.git
