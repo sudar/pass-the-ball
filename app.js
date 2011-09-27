@@ -22,17 +22,19 @@ var connect = require('connect'),
             });
 
             r.get("/moveleft", function (req, response) {
-                var json = moveLeft();
-
+                var args = moveLeft(),
+                    json = {name: 'move', args: args};            
+                
                 if (json) {
-                    io.sockets.json.send(json);            
+                    io.sockets.json.send(json);
                 }
                 
                 response.end();
             });
 
             r.get("/moveright", function (req, response) {
-                var json = moveRight();
+                var args = moveRight(),
+                    json = {name: 'move', args: args};
 
                 if (json) {
                     io.sockets.json.send(json);            
@@ -73,7 +75,7 @@ io.sockets.on('connection', function (socket) {
             
             log("Received move left from: " + currentLocation);
 
-            var json = moveLeft();
+            var json = moveLeft(socket);
 
             if (json) {
                 socket.emit('move', json);                
@@ -98,7 +100,7 @@ io.sockets.on('connection', function (socket) {
                     
             log("Received move right: " + currentLocation);            
 
-            var json = moveRight();
+            var json = moveRight(socket);
 
             if (json) {
                 socket.emit('move', json);                                
@@ -126,86 +128,89 @@ io.sockets.on('connection', function (socket) {
             }
 
             if (currentLocation === clientId) {
-                resetActiveClient();
+                resetActiveClient(socket);
             }                
         });        
-    });
-    
-    // Reset Current client. this can happen if the current client disconnects
-    function resetActiveClient () {
-        log("Reactivate client");
-        
-        if (nicknames.length !== 0) {
-            currentLocation = nicknames[0]; // pick the first client
-            socket.broadcast.emit('currentClient', nicknames[0]);
-        } else {
-            // set currentLocaiton to the new client
-            currentLocation = serialId;
-        }        
-    }
-   
-    function moveLeft() {
-        if (nicknames.length > 1) {
-            // we have more than one client
-            var idx = nicknames.indexOf(currentLocation), // Find the index
-                to;
-
-            if (idx !== -1) {
-                if (idx === 0) {
-                    // move left of first client.
-                    to = nicknames.length - 1;
-                } else {
-                    to = idx - 1;
-                }
-
-                currentLocation = nicknames[to];
-                json = {
-                    from: nicknames[idx], 
-                    to: nicknames[to],
-                    direction: 'left'
-                };
-                
-                log("from: " + idx + ", to: " + to);
-                return json;
-
-            } else {
-                log("Invalid state. Current Client not found. ");
-                resetActiveClient();
-                return;
-            }            
-        }            
-    }
-
-    function moveRight() {
-        if (nicknames.length > 1) {
-            // we have more than one client
-            var idx = nicknames.indexOf(currentLocation), // Find the index
-                to,
-                json;
-
-            if (idx !== -1) {
-                if (idx === (nicknames.length - 1)) {
-                    // move right of last client.
-                    to = 0;
-                } else {
-                    to = idx + 1;
-                }
-
-                currentLocation = nicknames[to];
-                json = {
-                    from: nicknames[idx], 
-                    to: nicknames[to],
-                    direction: 'right'
-                };
-                
-                log("from: " + idx + ", to: " + to);
-                return json;
-
-            } else {
-                log("Invalid state. Current Client not found. ");
-                resetActiveClient();
-                return;
-            }            
-        }            
-    }    
+    });    
 });
+
+// Reset Current client. this can happen if the current client disconnects
+function resetActiveClient (socket) {
+    log("Reactivate client");
+    
+    if (nicknames.length !== 0) {
+        currentLocation = nicknames[0]; // pick the first client
+        if (socket) {
+            socket.broadcast.emit('currentClient', nicknames[0]);            
+        }
+
+    } else {
+        // set currentLocaiton to the new client
+        currentLocation = serialId;
+    }        
+}
+
+function moveLeft(socket) {
+    if (nicknames.length > 1) {
+        // we have more than one client
+        var idx = nicknames.indexOf(currentLocation), // Find the index
+            to;
+
+        if (idx !== -1) {
+            if (idx === 0) {
+                // move left of first client.
+                to = nicknames.length - 1;
+            } else {
+                to = idx - 1;
+            }
+
+            currentLocation = nicknames[to];
+            json = {
+                from: nicknames[idx], 
+                to: nicknames[to],
+                direction: 'left'
+            };
+            
+            log("from: " + idx + ", to: " + to);
+            return json;
+
+        } else {
+            log("Invalid state. Current Client not found. ");
+            resetActiveClient(socket);
+            return;
+        }            
+    }            
+}
+
+function moveRight(socket) {
+    if (nicknames.length > 1) {
+        // we have more than one client
+        var idx = nicknames.indexOf(currentLocation), // Find the index
+            to,
+            json;
+
+        if (idx !== -1) {
+            if (idx === (nicknames.length - 1)) {
+                // move right of last client.
+                to = 0;
+            } else {
+                to = idx + 1;
+            }
+
+            currentLocation = nicknames[to];
+            json = {
+                from: nicknames[idx], 
+                to: nicknames[to],
+                direction: 'right'
+            };
+            
+            log("from: " + idx + ", to: " + to);
+            return json;
+
+        } else {
+            log("Invalid state. Current Client not found. ");
+            resetActiveClient(socket);
+            return;
+        }            
+    }            
+}    

@@ -180,7 +180,16 @@ YUI({
 
     socket.on('move', function (data) {
         console.log("Received move");
+        console.log(data);
         calculatePosition(data);
+    });
+    
+    socket.on('message', function (data) {
+        console.log("Received message");
+        if (data.name === 'move') {
+            console.log(data.args);
+            calculatePosition(data.args);
+        }
     });
 
     Y.on('click', function () {
