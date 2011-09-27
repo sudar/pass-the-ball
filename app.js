@@ -1,97 +1,211 @@
-require.paths.unshift("/Users/sudarm/local/node/lib");
+/*jslint devel: true, node: true, widget: true, maxerr: 50, indent: 4 */
+/*global require, window, Circle*/
 
-var connect = require('connect')
-  , app = connect.createServer()
-  , io = require('socket.io').listen(app)
-  , router = connect.router(handler),
-  sys = require('sys');
+require.paths.unshift("/Users/sudarm/local/node/lib"); // because of some wired NPM issue. Should comment it out
 
+var connect = require('connect'),
+    sys = require('sys'),
+    debug = true, // set to false in production
+    log = function (message) {
+        // wrapper for logging
+        if (debug) {
+            sys.puts(message);
+        }
+    },
+    nicknames = [],
+    currentLocation = 0,
+    serialId = 0,
+    app = connect.createServer()
+        .use(connect.router(function (r) {
+            r.get("/", function (req, resp) {
 
-var debug = true, // set to false in production
-      log = function (message) {
-          // wrapper for logging
-          if (debug) {
-              sys.puts(message);
-          }
-      };
+            });
 
-app.use(router);
-app.use(connect.static(__dirname + '/public'));
+            r.get("/moveleft", function (req, response) {
+                var json = moveLeft();
+
+                if (json) {
+                    io.sockets.json.send(json);            
+                }
+                
+                response.end();
+            });
+
+            r.get("/moveright", function (req, response) {
+                var json = moveRight();
+
+                if (json) {
+                    io.sockets.json.send(json);            
+                }
+                
+                response.end();
+            });
+        }))
+        .use(connect.static(__dirname + '/public')),
+    io = require('socket.io').listen(app);
+
 app.listen(8080);
 
-function handler(r){
-  r.get("/", function(req, resp){
-    
-  });
-  
-  r.get("/moveleft", function(req, response){
-      if (currentLocation != 0) {
-          io.sockets.json.send({from: currentLocation, to: currentLocation - 1});          
-          currentLocation = currentLocation - 1;                      
-        }
-      response.end();
-  });
-  
-  r.get("/moveright", function(req, response){
-      if (currentLocation != 2) {
-          io.sockets.json.send({from: currentLocation, to: currentLocation + 1});
-          currentLocation = currentLocation + 1
-        }
-      response.end();
-  });
-}
-
-var nicknames = {},
-    currentLocation = 1;
-
+// socket handlers
 io.sockets.on('connection', function (socket) {
+    socket.on('get Id', function () {
+        nicknames.push(serialId);
+
+        socket.set('clientId', serialId, function () { 
+            socket.emit('set Id', {clientId: serialId, currentClient: currentLocation}); 
+            serialId += 1;
+        });
+    });
 
     // move left event
-  socket.on('moveleft', function (data) {
-      log("Received move left from: " + currentLocation);      
-      if (currentLocation != 0) {
-          socket.broadcast.emit('move', {from: currentLocation, to: currentLocation - 1});
-          currentLocation = currentLocation - 1;                
-      }
-  });
-  
+    socket.on('moveleft', function (data) {
+
+        socket.get('clientId', function (err, clientId) {
+            if (err) {
+                log("Cannot retrieve client id: " + err);                
+                return;
+            }
+
+            if (clientId !== currentLocation) {
+                log("You are not the active client");
+                return;
+            }
+            
+            log("Received move left from: " + currentLocation);
+
+            var json = moveLeft();
+
+            if (json) {
+                socket.emit('move', json);                
+                socket.broadcast.emit('move', json);            
+            }
+
+        });        
+    });
+
     // move left event  
-  socket.on('moveright', function (data) {
-          log("Received move right: " + currentLocation);            
-      if (currentLocation != 2) {
-          socket.broadcast.emit('move', {from: currentLocation, to: currentLocation + 1});
-          currentLocation = currentLocation + 1;                
-      }
-  });
-  
-  socket.on('nickname', function (nick, fn) {
-      log("Received nickname");
-    if (nicknames[nick]) {
-      fn(true);
-    } else {
-      fn(false);
-      nicknames[nick] = socket.nickname = nick;
-      socket.broadcast.emit('announcement', nick + ' connected');
-      io.sockets.emit('nicknames', nicknames);
-    }
-  });
+    socket.on('moveright', function (data) {
+        socket.get('clientId', function (err, clientId) {
+            if (err) {
+                log("Cannot retrieve client id: " + err);                
+                return;
+            }
 
-  socket.on('disconnect', function () {
-      log("Received connect");      
-      socket.broadcast.emit('connect');
-  });
-      
-  socket.on('message', function () {
-      log("Received message");
-  });
-      
-  socket.on('disconnect', function () {
-      log("Received disconnect");      
-    if (!socket.nickname) return;
+            if (clientId !== currentLocation) {
+                log("You are not the active client");
+                return;
+            }
+                    
+            log("Received move right: " + currentLocation);            
 
-    delete nicknames[socket.nickname];
-    socket.broadcast.emit('announcement', socket.nickname + ' disconnected');
-    socket.broadcast.emit('nicknames', nicknames);
-  });
+            var json = moveRight();
+
+            if (json) {
+                socket.emit('move', json);                                
+                socket.broadcast.emit('move', json);            
+            }
+        });
+    });
+
+    // When the client disconnects
+    socket.on('disconnect', function () {
+        log("Received disconnect");
+        
+        socket.get('clientId', function (err, clientId) {
+            if (err) {
+                log("Cannot retrieve client id: " + err);                
+                return;
+            }
+            
+            log("Clientid: " + clientId);
+
+            var idx = nicknames.indexOf(clientId); // Find the index
+            if (idx !== -1) {
+                nicknames.splice(idx, 1); // remove the client id
+                log("Removed client id: " + clientId)
+            }
+
+            if (currentLocation === clientId) {
+                resetActiveClient();
+            }                
+        });        
+    });
     
+    // Reset Current client. this can happen if the current client disconnects
+    function resetActiveClient () {
+        log("Reactivate client");
+        
+        if (nicknames.length !== 0) {
+            currentLocation = nicknames[0]; // pick the first client
+            socket.broadcast.emit('currentClient', nicknames[0]);
+        } else {
+            // set currentLocaiton to the new client
+            currentLocation = serialId;
+        }        
+    }
+   
+    function moveLeft() {
+        if (nicknames.length > 1) {
+            // we have more than one client
+            var idx = nicknames.indexOf(currentLocation), // Find the index
+                to;
+
+            if (idx !== -1) {
+                if (idx === 0) {
+                    // move left of first client.
+                    to = nicknames.length - 1;
+                } else {
+                    to = idx - 1;
+                }
+
+                currentLocation = nicknames[to];
+                json = {
+                    from: nicknames[idx], 
+                    to: nicknames[to],
+                    direction: 'left'
+                };
+                
+                log("from: " + idx + ", to: " + to);
+                return json;
+
+            } else {
+                log("Invalid state. Current Client not found. ");
+                resetActiveClient();
+                return;
+            }            
+        }            
+    }
+
+    function moveRight() {
+        if (nicknames.length > 1) {
+            // we have more than one client
+            var idx = nicknames.indexOf(currentLocation), // Find the index
+                to,
+                json;
+
+            if (idx !== -1) {
+                if (idx === (nicknames.length - 1)) {
+                    // move right of last client.
+                    to = 0;
+                } else {
+                    to = idx + 1;
+                }
+
+                currentLocation = nicknames[to];
+                json = {
+                    from: nicknames[idx], 
+                    to: nicknames[to],
+                    direction: 'right'
+                };
+                
+                log("from: " + idx + ", to: " + to);
+                return json;
+
+            } else {
+                log("Invalid state. Current Client not found. ");
+                resetActiveClient();
+                return;
+            }            
+        }            
+    }    
 });
